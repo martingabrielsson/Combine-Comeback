@@ -279,9 +279,57 @@
   /* Calendar */
   .calendar-section {
     flex: 1;
-    padding: 20px 16px;
+    padding: 16px 16px 20px;
     overflow-y: auto;
   }
+
+  .cal-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .cal-nav-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s, color 0.15s;
+    flex-shrink: 0;
+  }
+
+  .cal-nav-btn:active { border-color: var(--gold); color: var(--gold); }
+  .cal-nav-btn:disabled { opacity: 0.25; cursor: default; }
+
+  .cal-nav-label {
+    font-size: 13px;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  .cal-today-jump {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--gold);
+    background: none;
+    border: 1px solid var(--gold-dim);
+    border-radius: 10px;
+    padding: 2px 10px;
+    cursor: pointer;
+    letter-spacing: 0.3px;
+    transition: background 0.15s;
+  }
+
+  .cal-today-jump:active { background: rgba(240,185,11,0.15); }
+  .cal-today-jump.hidden { visibility: hidden; pointer-events: none; }
 
   .cal-header-row {
     display: grid;
@@ -336,13 +384,13 @@
   .cal-day.caught .day-mon { opacity: 0.6; }
 
   .cal-day.today {
-    border-color: var(--teal);
-    box-shadow: 0 0 0 1px var(--teal);
+    border-color: var(--gold);
+    box-shadow: 0 0 0 2px var(--gold);
   }
 
   .cal-day.today.caught {
     border-color: var(--gold);
-    box-shadow: 0 0 0 1px var(--gold);
+    box-shadow: 0 0 0 2px var(--gold), 0 0 12px rgba(240,185,11,0.4);
   }
 
   .cal-day.future {
@@ -353,6 +401,17 @@
 
   .cal-day:not(.future):active {
     transform: scale(0.93);
+  }
+
+  @keyframes nugget-pop {
+    0%   { transform: scale(1); box-shadow: 0 0 0 0 rgba(240,185,11,0.8); }
+    40%  { transform: scale(1.18); box-shadow: 0 0 0 10px rgba(240,185,11,0.3); }
+    70%  { transform: scale(0.95); box-shadow: 0 0 0 16px rgba(240,185,11,0); }
+    100% { transform: scale(1); box-shadow: none; }
+  }
+
+  .cal-day.pop {
+    animation: nugget-pop 0.45s ease forwards;
   }
 
   /* Today button */
@@ -494,7 +553,7 @@
   <div class="page" id="tracker">
     <div class="tracker-header">
       <div class="tracker-top-row">
-        <div class="tracker-title">Golden Nugget Tracker</div>
+        <img src="Topstep logo.webp" alt="Topstep" style="height:28px;width:auto;">
         <button class="edit-goal-btn" onclick="editGoal()">Edit Goal</button>
       </div>
       <div class="count-display">
@@ -510,6 +569,14 @@
     </div>
 
     <div class="calendar-section">
+      <div class="cal-nav">
+        <button class="cal-nav-btn" id="calPrevBtn" onclick="shiftWeek(-1)">‹</button>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <div class="cal-nav-label" id="calNavLabel"></div>
+          <button class="cal-today-jump" id="calTodayJump" onclick="jumpToToday()">Today</button>
+        </div>
+        <button class="cal-nav-btn" id="calNextBtn" onclick="shiftWeek(1)">›</button>
+      </div>
       <div class="cal-header-row">
         <div class="cal-header-cell">Mon</div>
         <div class="cal-header-cell">Tue</div>
@@ -558,6 +625,7 @@ function saveState(state) {
 }
 
 let state = null;
+let weekOffset = 0; // weeks relative to current week (centre of 3-week view)
 
 // ── Date utils ─────────────────────────────────────────
 function toDateStr(date) {
@@ -667,26 +735,43 @@ function renderTracker() {
       : 'Mark today as caught';
   }
 
-  buildCalendar(startDate, today, caughtDays);
+  buildCalendar(startDate, today, caughtDays, weekOffset);
 }
 
-function buildCalendar(startDate, today, caughtDays) {
+function shiftWeek(delta) {
+  weekOffset += delta;
+  renderTracker();
+}
+
+function jumpToToday() {
+  weekOffset = 0;
+  renderTracker();
+}
+
+function buildCalendar(startDate, today, caughtDays, offset) {
   const grid = document.getElementById('calGrid');
   grid.innerHTML = '';
 
-  // Show last week, current week, next week
+  // Centre week = current week + offset weeks
   const todayDate = parseDate(today);
-  const todayDow = todayDate.getDay(); // 0=Sun
-  // Monday of current week
+  const todayDow = todayDate.getDay();
   const curMonOffset = todayDow === 0 ? -6 : 1 - todayDow;
   const curMon = new Date(todayDate);
-  curMon.setDate(curMon.getDate() + curMonOffset);
-  // Start = Monday last week
+  curMon.setDate(curMon.getDate() + curMonOffset + offset * 7);
+  // Show last week, centre week, next week
   const weekStart = new Date(curMon);
   weekStart.setDate(weekStart.getDate() - 7);
-  // End = Friday next week
   const weekEnd = new Date(curMon);
   weekEnd.setDate(weekEnd.getDate() + 7 + 4);
+
+  // Update nav label (centre week range)
+  const centreEnd = new Date(curMon);
+  centreEnd.setDate(centreEnd.getDate() + 4);
+  const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  document.getElementById('calNavLabel').textContent = `${fmt(curMon)} – ${fmt(centreEnd)}`;
+
+  document.getElementById('calPrevBtn').disabled = false;
+  document.getElementById('calTodayJump').classList.toggle('hidden', offset === 0);
 
   const caughtSet = new Set(caughtDays);
 
@@ -702,13 +787,13 @@ function buildCalendar(startDate, today, caughtDays) {
     const isCaught = caughtSet.has(ds);
     const isToday = ds === today;
     const isFuture = ds > today;
-    const isBeforeStart = ds < startDate;
 
     const cell = document.createElement('div');
     cell.className = 'cal-day';
+    cell.dataset.date = ds;
     if (isCaught) cell.classList.add('caught');
     if (isToday) cell.classList.add('today');
-    if (isFuture || isBeforeStart) cell.classList.add('future');
+    if (isFuture) cell.classList.add('future');
 
     const dayNum = document.createElement('div');
     dayNum.className = 'day-num';
@@ -721,7 +806,7 @@ function buildCalendar(startDate, today, caughtDays) {
     cell.appendChild(dayNum);
     cell.appendChild(dayMon);
 
-    if (!isFuture && !isBeforeStart) {
+    if (!isFuture) {
       // Double-tap / double-click: track last tap time, toggle on second tap within 350ms
       let lastTap = 0;
       const handleTap = (e) => {
@@ -729,7 +814,7 @@ function buildCalendar(startDate, today, caughtDays) {
         const now = Date.now();
         if (now - lastTap < 350) {
           lastTap = 0;
-          toggleDay(ds);
+          toggleDay(ds, cell);
         } else {
           lastTap = now;
         }
@@ -743,20 +828,34 @@ function buildCalendar(startDate, today, caughtDays) {
   }
 }
 
-function toggleDay(dateStr) {
+const catchSound = new Audio('applepay.mp3');
+
+function toggleDay(dateStr, cell) {
   const idx = state.caughtDays.indexOf(dateStr);
-  if (idx >= 0) {
-    state.caughtDays.splice(idx, 1);
-  } else {
+  const marking = idx < 0;
+  if (marking) {
     state.caughtDays.push(dateStr);
+    catchSound.currentTime = 0;
+    catchSound.play().catch(() => {});
+  } else {
+    state.caughtDays.splice(idx, 1);
   }
   saveState(state);
 
-  if (state.caughtDays.length >= state.goal) {
+  if (marking && state.caughtDays.length >= state.goal) {
     renderTracker();
     showCelebration();
   } else {
     renderTracker();
+    // After re-render, pop the newly-caught cell
+    if (marking) {
+      const freshCell = document.querySelector(`.cal-day[data-date="${dateStr}"]`);
+      if (freshCell) {
+        freshCell.classList.remove('pop');
+        void freshCell.offsetWidth;
+        freshCell.classList.add('pop');
+      }
+    }
   }
 }
 
