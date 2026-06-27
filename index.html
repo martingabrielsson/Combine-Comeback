@@ -31,6 +31,21 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: url('candle sticks.webp') center center / cover no-repeat;
+    opacity: 0.12;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #app {
+    position: relative;
+    z-index: 1;
+  }
+
   #app {
     min-height: 100vh;
     display: flex;
@@ -539,7 +554,7 @@
 
       <div class="goal-input-wrap">
         <button class="goal-btn" id="decrementBtn" onclick="adjustGoal(-1)">−</button>
-        <input type="number" id="goalInput" min="1" max="9999" value="30" oninput="onGoalInput()">
+        <input type="number" id="goalInput" min="1" max="9999" value="30" inputmode="numeric" pattern="[0-9]*" oninput="onGoalInput()">
         <button class="goal-btn" id="incrementBtn" onclick="adjustGoal(1)">+</button>
       </div>
 
