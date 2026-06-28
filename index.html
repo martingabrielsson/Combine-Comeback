@@ -648,7 +648,7 @@
         <button onclick="joinWithCode()"
           style="padding:10px 16px;background:var(--teal);color:#000;font-weight:700;font-size:14px;border:none;border-radius:8px;cursor:pointer;">Join</button>
       </div>
-      <div id="syncStatus" style="font-size:12px;color:var(--teal);margin-top:8px;min-height:16px;"></div>
+      <div class="syncStatus" style="font-size:12px;color:var(--teal);margin-top:8px;min-height:16px;"></div>
     </div>
   </div>
 
@@ -674,7 +674,7 @@
         <div class="sek-target" id="sekTarget">/ 0 kr</div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
-        <div id="syncStatus" style="font-size:11px;color:var(--teal);"></div>
+        <div class="syncStatus" style="font-size:11px;color:var(--teal);"></div>
         <button onclick="copySyncCode()" id="syncCodeBtn"
           style="font-size:11px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer;display:none;">
           📋 Copy sync code
@@ -737,7 +737,8 @@
 // ── Sync / State ───────────────────────────────────────
 const STORAGE_KEY = 'combineComeback_v1';
 const BIN_KEY     = 'combineComeback_binId';
-const API_KEY     = '$2a$10$YxH0Pa3rMnS75Unbb1XrSu5iZBZu9Gva1fiUwDWuyD2zymM/Jl0SG';
+const ACCESS_KEY  = '$2a$10$YxH0Pa3rMnS75Unbb1XrSu5iZBZu9Gva1fiUwDWuyD2zymM/Jl0SG';
+const SECRET_KEY  = '$2a$10$ckL/5tdvtyhLTnI8Mg4Ww.sn0TNn6UhsO/mPZ9UIaa1gJ8ct3RfSG';
 const BIN_BASE    = 'https://api.jsonbin.io/v3/b';
 
 let state = null;
@@ -766,14 +767,16 @@ function scheduleCloudSave(st) {
 async function pushToCloud(st) {
   if (!binId) return;
   try {
-    await fetch(`${BIN_BASE}/${binId}`, {
+    const res = await fetch(`${BIN_BASE}/${binId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-Access-Key': API_KEY },
+      headers: { 'X-Master-Key': SECRET_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify(st)
     });
+    if (!res.ok) throw new Error(res.status);
     setSyncStatus('Synced ✓', false);
-  } catch {
+  } catch (e) {
     setSyncStatus('Sync failed', true);
+    console.error('pushToCloud:', e);
   }
 }
 
@@ -782,30 +785,31 @@ async function createBin(st) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Access-Key': API_KEY,
-      'X-Bin-Private': 'true',
+      'X-Access-Key': ACCESS_KEY,
+      'X-Bin-Private': 'false',
       'X-Bin-Name': 'CombineComeback'
     },
     body: JSON.stringify(st)
   });
+  if (!res.ok) throw new Error(`createBin ${res.status}`);
   const json = await res.json();
   return json.metadata?.id || null;
 }
 
 async function loadFromCloud(id) {
   const res = await fetch(`${BIN_BASE}/${id}/latest`, {
-    headers: { 'X-Access-Key': API_KEY }
+    headers: { 'X-Access-Key': ACCESS_KEY }
   });
-  if (!res.ok) throw new Error('Bin not found');
+  if (!res.ok) throw new Error(`loadFromCloud ${res.status}`);
   const json = await res.json();
   return json.record;
 }
 
 function setSyncStatus(msg, isError) {
-  const el = document.getElementById('syncStatus');
-  if (!el) return;
-  el.textContent = msg;
-  el.style.color = isError ? 'var(--red)' : 'var(--teal)';
+  document.querySelectorAll('.syncStatus').forEach(el => {
+    el.textContent = msg;
+    el.style.color = isError ? 'var(--red)' : 'var(--teal)';
+  });
 }
 
 function copySyncCode() {
@@ -1194,8 +1198,8 @@ function stopConfetti() {
 // ── Boot ───────────────────────────────────────────────
 function showSyncCodeBtn() {
   const btn = document.getElementById('syncCodeBtn');
-  if (btn) btn.style.display = binId ? 'block' : 'none';
-  if (binId) setSyncStatus('Synced ✓', false);
+  if (btn) btn.style.display = binId ? 'inline-block' : 'none';
+  if (binId) setSyncStatus('Cloud sync active', false);
 }
 
 async function boot() {
