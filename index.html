@@ -401,13 +401,23 @@
 
   .cal-day.caught .day-mon { opacity: 0.6; }
 
+  .cal-day.negative {
+    background: var(--red);
+    border-color: #b71c1c;
+    border-width: 2px;
+    color: #fff;
+  }
+
+  .cal-day.negative .day-mon { opacity: 0.75; }
+
   .cal-day.today {
     border-color: var(--green-today);
     border-width: 2px;
     box-shadow: 0 0 0 2px var(--green-today);
   }
 
-  .cal-day.today.caught {
+  .cal-day.today.caught,
+  .cal-day.today.negative {
     border-color: var(--green-today);
     border-width: 2px;
     box-shadow: 0 0 0 2px var(--green-today);
@@ -1012,15 +1022,19 @@ function renderTracker() {
     todayBtn.style.display = 'flex';
     if (adjRow) adjRow.style.display = 'flex';
     todayBtn.className = 'today-btn' + (todayIsCaught ? ' caught-today' : '');
-    document.getElementById('todayBtnIcon').textContent = todayIsCaught ? '✓' : '🪙';
+    const todayIsNegative = todayCount < 0;
+    document.getElementById('todayBtnIcon').textContent = todayIsCaught ? '✓' : todayIsNegative ? '−' : '🪙';
     document.getElementById('todayBtnText').textContent = todayIsCaught
       ? `Today caught! (${todayCount}) — Tap to undo`
-      : 'One-Combine Caught Today!';
+      : todayIsNegative
+        ? `Today: ${todayCount} combines — Tap to reset`
+        : 'One-Combine Caught Today!';
   }
 
-  // +/− act on selectedDay; enabled only when that day is marked
-  adjMinus.disabled = !selMarked;
-  adjPlus.disabled  = !selMarked;
+  // +/− act on selectedDay; enabled whenever a day is selected
+  const adjEnabled = !!selectedDay && selectedDay <= today;
+  adjMinus.disabled = !adjEnabled;
+  adjPlus.disabled  = !adjEnabled;
 
   // Label which day the buttons act on
   const selLabel = selIsToday ? 'today' : formatDateDisplay(selectedDay);
@@ -1034,7 +1048,7 @@ function adjustToday(delta) {
   const day = selectedDay || todayStr();
   const cur = state.dayCounts[day] || 0;
   const next = cur + delta;
-  if (next <= 0) {
+  if (next === 0) {
     delete state.dayCounts[day];
   } else {
     state.dayCounts[day] = next;
@@ -1095,16 +1109,18 @@ function buildCalendar(startDate, today, dayCounts, offset) {
 
     const ds = toDateStr(new Date(cur));
     const count = dayCounts[ds] || 0;
-    const isCaught = count > 0;
-    const isToday = ds === today;
-    const isFuture = ds > today;
+    const isCaught   = count > 0;
+    const isNegative = count < 0;
+    const isToday    = ds === today;
+    const isFuture   = ds > today;
 
     const cell = document.createElement('div');
     cell.className = 'cal-day';
     cell.dataset.date = ds;
-    if (isCaught) cell.classList.add('caught');
-    if (isToday) cell.classList.add('today');
-    if (isFuture) cell.classList.add('future');
+    if (isCaught)   cell.classList.add('caught');
+    if (isNegative) cell.classList.add('negative');
+    if (isToday)    cell.classList.add('today');
+    if (isFuture)   cell.classList.add('future');
     if (ds === selectedDay && !isFuture) cell.classList.add('selected');
 
     const dayNum = document.createElement('div');
@@ -1113,10 +1129,13 @@ function buildCalendar(startDate, today, dayCounts, offset) {
 
     const dayMon = document.createElement('div');
     dayMon.className = 'day-mon';
-    // Show month or count badge if > 1
-    dayMon.textContent = count > 1
-      ? `×${count}`
-      : cur.toLocaleDateString('en-US', { month: 'short' });
+    if (count === 0) {
+      dayMon.textContent = cur.toLocaleDateString('en-US', { month: 'short' });
+    } else if (count === 1 || count === -1) {
+      dayMon.textContent = count === -1 ? '−1' : cur.toLocaleDateString('en-US', { month: 'short' });
+    } else {
+      dayMon.textContent = count > 0 ? `×${count}` : `−${Math.abs(count)}`;
+    }
 
     cell.appendChild(dayNum);
     cell.appendChild(dayMon);
