@@ -701,7 +701,7 @@
     <div class="tracker-header">
       <div class="tracker-top-row">
         <img src="Topstep logo.webp" alt="Topstep" style="height:28px;width:auto;">
-        <div style="font-size:11px;font-weight:700;color:var(--gold);letter-spacing:1px;text-transform:uppercase;">Catch a Combine a Day of $119</div>
+        <div style="font-size:11px;font-weight:700;color:#ff69b4;letter-spacing:1px;text-transform:uppercase;">Catch a Combine a Day $119</div>
         <button class="edit-goal-btn" onclick="editGoal()">Edit Goal</button>
       </div>
       <div class="count-display">
@@ -788,6 +788,8 @@ const BIN_KEY     = 'combineComeback_binId';
 const ACCESS_KEY  = '$2a$10$YxH0Pa3rMnS75Unbb1XrSu5iZBZu9Gva1fiUwDWuyD2zymM/Jl0SG';
 const SECRET_KEY  = '$2a$10$ckL/5tdvtyhLTnI8Mg4Ww.sn0TNn6UhsO/mPZ9UIaa1gJ8ct3RfSG';
 const BIN_BASE    = 'https://api.jsonbin.io/v3/b';
+
+const MIN_DATE = '2026-06-28';
 
 let state = null;
 let weekOffset = 0;
@@ -1008,8 +1010,8 @@ function renderTracker() {
   const adjPlus   = document.getElementById('adjPlus');
   const adjRow    = document.querySelector('.adj-btn-row');
 
-  // Default selectedDay to today if not set or if it's in the future
-  if (!selectedDay || selectedDay > today) selectedDay = today;
+  // Default selectedDay to today if not set, in the future, or before MIN_DATE
+  if (!selectedDay || selectedDay > today || selectedDay < MIN_DATE) selectedDay = today;
 
   const selCount   = state.dayCounts[selectedDay] || 0;
   const selMarked  = selCount > 0;
@@ -1113,15 +1115,17 @@ function buildCalendar(startDate, today, dayCounts, offset) {
     const isNegative = count < 0;
     const isToday    = ds === today;
     const isFuture   = ds > today;
+    const isPast     = ds < MIN_DATE;
+    const isInactive = isFuture || isPast;
 
     const cell = document.createElement('div');
     cell.className = 'cal-day';
     cell.dataset.date = ds;
-    if (isCaught)   cell.classList.add('caught');
-    if (isNegative) cell.classList.add('negative');
-    if (isToday)    cell.classList.add('today');
-    if (isFuture)   cell.classList.add('future');
-    if (ds === selectedDay && !isFuture) cell.classList.add('selected');
+    if (isCaught)    cell.classList.add('caught');
+    if (isNegative)  cell.classList.add('negative');
+    if (isToday)     cell.classList.add('today');
+    if (isInactive)  cell.classList.add('future');
+    if (ds === selectedDay && !isInactive) cell.classList.add('selected');
 
     const dayNum = document.createElement('div');
     dayNum.className = 'day-num';
@@ -1140,21 +1144,30 @@ function buildCalendar(startDate, today, dayCounts, offset) {
     cell.appendChild(dayNum);
     cell.appendChild(dayMon);
 
-    if (!isFuture) {
-      // Double-tap / double-click: track last tap time, toggle on second tap within 350ms
-      let lastTap = 0;
-      const handleTap = (e) => {
+    if (!isInactive) {
+      // Activate (select) a day: double-click in browser, short press-and-hold on phone.
+      // Once active, the +/− buttons adjust that day's combine count.
+      cell.addEventListener('dblclick', (e) => {
         e.preventDefault();
-        const now = Date.now();
-        if (now - lastTap < 350) {
-          lastTap = 0;
-          toggleDay(ds);
-        } else {
-          lastTap = now;
-        }
+        selectDay(ds);
+      });
+
+      // Touch long-press (press down shortly): fire after ~350ms hold, cancel on move/lift.
+      let pressTimer = null;
+      const cancelPress = () => {
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
       };
-      cell.addEventListener('touchend', handleTap, { passive: false });
-      cell.addEventListener('click', handleTap);
+      cell.addEventListener('touchstart', (e) => {
+        cancelPress();
+        pressTimer = setTimeout(() => {
+          pressTimer = null;
+          e.preventDefault();
+          selectDay(ds);
+        }, 350);
+      }, { passive: true });
+      cell.addEventListener('touchmove', cancelPress, { passive: true });
+      cell.addEventListener('touchend', cancelPress);
+      cell.addEventListener('touchcancel', cancelPress);
     }
 
     grid.appendChild(cell);
@@ -1163,6 +1176,13 @@ function buildCalendar(startDate, today, dayCounts, offset) {
 }
 
 const catchSound = new Audio('applepay.mp3');
+
+function selectDay(dateStr) {
+  if (dateStr > todayStr() || dateStr < MIN_DATE) return; // never select future or pre-MIN_DATE days
+  selectedDay = dateStr;
+  if (navigator.vibrate) navigator.vibrate(15);
+  renderTracker();
+}
 
 function toggleDay(dateStr) {
   const marking = !(state.dayCounts[dateStr] > 0);
