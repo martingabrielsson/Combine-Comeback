@@ -16,6 +16,7 @@
     --gold: #f0b90b;
     --gold-dim: #7a5c05;
     --teal: #26a69a;
+    --green-today: #1b5e20;
     --red: #ef5350;
     --text: #d1d4dc;
     --text-dim: #4a4f60;
@@ -44,9 +45,6 @@
   #app {
     position: relative;
     z-index: 1;
-  }
-
-  #app {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
@@ -396,20 +394,28 @@
 
   .cal-day.caught {
     background: var(--gold);
-    border-color: var(--gold);
+    border-color: var(--red);
+    border-width: 2px;
     color: #000;
   }
 
   .cal-day.caught .day-mon { opacity: 0.6; }
 
   .cal-day.today {
-    border-color: var(--gold);
-    box-shadow: 0 0 0 2px var(--gold);
+    border-color: var(--green-today);
+    border-width: 2px;
+    box-shadow: 0 0 0 2px var(--green-today);
   }
 
   .cal-day.today.caught {
-    border-color: var(--gold);
-    box-shadow: 0 0 0 2px var(--gold), 0 0 12px rgba(240,185,11,0.4);
+    border-color: var(--green-today);
+    border-width: 2px;
+    box-shadow: 0 0 0 2px var(--green-today);
+  }
+
+  .cal-day.selected {
+    outline: 2px solid var(--teal);
+    outline-offset: 2px;
   }
 
   .cal-day.future {
@@ -505,12 +511,15 @@
     to   { width: 0%; }
   }
 
-  /* Today button */
+  /* Today button section */
   .today-section {
     padding: 12px 16px;
     padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
     border-top: 1px solid var(--border);
     background: var(--bg2);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .today-btn {
@@ -537,6 +546,31 @@
   }
 
   .today-btn:active { opacity: 0.8; transform: scale(0.98); }
+
+  .adj-btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .adj-btn {
+    flex: 1;
+    padding: 11px;
+    border-radius: var(--radius);
+    border: none;
+    font-size: 22px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.12s;
+    line-height: 1;
+  }
+
+  .adj-btn:disabled { opacity: 0.25; cursor: default; }
+  .adj-btn:not(:disabled):active { transform: scale(0.95); }
+
+  .adj-minus { background: var(--red); color: #fff; }
+  .adj-plus  { background: var(--teal); color: #000; }
+
 
   /* ══════════════════════════════
      PAGE 3 — CELEBRATION
@@ -704,8 +738,12 @@
     <div class="today-section">
       <button class="today-btn" id="todayBtn" onclick="toggleToday()">
         <span id="todayBtnIcon">🪙</span>
-        <span id="todayBtnText">Mark today as caught</span>
+        <span id="todayBtnText">One-Combine Caught Today!</span>
       </button>
+      <div class="adj-btn-row">
+        <button class="adj-btn adj-minus" id="adjMinus" onclick="adjustToday(-1)" disabled>−</button>
+        <button class="adj-btn adj-plus"  id="adjPlus"  onclick="adjustToday(1)"  disabled>+</button>
+      </div>
     </div>
   </div>
 
@@ -743,13 +781,31 @@ const BIN_BASE    = 'https://api.jsonbin.io/v3/b';
 
 let state = null;
 let weekOffset = 0;
+let selectedDay = null; // which day the +/− buttons act on
 let binId = localStorage.getItem(BIN_KEY) || null;
 let syncTimer = null;
+
+function migrateState(st) {
+  if (!st) return st;
+  // Migrate old caughtDays[] → dayCounts{}
+  if (st.caughtDays && !st.dayCounts) {
+    st.dayCounts = {};
+    st.caughtDays.forEach(d => { st.dayCounts[d] = 1; });
+  }
+  if (!st.dayCounts) st.dayCounts = {};
+  delete st.caughtDays;
+  return st;
+}
+
+function totalCaught() {
+  return Object.values(state.dayCounts).reduce((a, b) => a + b, 0);
+}
+
 
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    return raw ? migrateState(JSON.parse(raw)) : null;
   } catch { return null; }
 }
 
@@ -824,7 +880,7 @@ async function joinWithCode() {
   setSyncStatus('Connecting…', false);
   try {
     const remote = await loadFromCloud(code);
-    state = remote;
+    state = migrateState(remote);
     binId = code;
     localStorage.setItem(BIN_KEY, binId);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -838,11 +894,18 @@ async function joinWithCode() {
 
 // ── Date utils ─────────────────────────────────────────
 function toDateStr(date) {
-  return date.toISOString().slice(0, 10);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function todayStr() {
-  return toDateStr(new Date());
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function parseDate(str) {
@@ -855,25 +918,9 @@ function isWeekday(date) {
   return dow >= 1 && dow <= 5;
 }
 
-function getWeekdaysBetween(startStr, endStr) {
-  const days = [];
-  const cur = parseDate(startStr);
-  const end = parseDate(endStr);
-  while (cur <= end) {
-    if (isWeekday(cur)) days.push(toDateStr(new Date(cur)));
-    cur.setDate(cur.getDate() + 1);
-  }
-  return days;
-}
-
 function formatDateDisplay(str) {
   const d = parseDate(str);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-function monthAbbr(str) {
-  const d = parseDate(str);
-  return d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
 }
 
 // ── Pages ──────────────────────────────────────────────
@@ -902,7 +949,7 @@ async function startJourney() {
   const btn = document.getElementById('startBtn');
   btn.disabled = true;
   btn.textContent = 'Creating…';
-  state = { goal, startDate: todayStr(), caughtDays: [] };
+  state = { goal, startDate: todayStr(), dayCounts: {} };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   try {
     binId = await createBin(state);
@@ -917,7 +964,7 @@ async function startJourney() {
 }
 
 function editGoal() {
-  const caught = state.caughtDays.length;
+  const caught = totalCaught();
   const msg = caught > 0
     ? `You've already caught ${caught} combine${caught > 1 ? 's' : ''}. Edit your goal?`
     : 'Edit your goal?';
@@ -929,8 +976,8 @@ function editGoal() {
 
 // ── Tracker page ───────────────────────────────────────
 function renderTracker() {
-  const { goal, startDate, caughtDays } = state;
-  const caught = caughtDays.length;
+  const { goal, startDate } = state;
+  const caught = totalCaught();
   const pct = Math.min(100, Math.round((caught / goal) * 100));
 
   const fmtSEK = n => n.toLocaleString('sv-SE').replace(/\s/g, '.') + ' kr';
@@ -942,23 +989,65 @@ function renderTracker() {
   document.getElementById('sekTarget').textContent = '/ ' + fmtSEK(goal * 1200);
 
   const today = todayStr();
-  const todayIsCaught = caughtDays.includes(today);
+  const todayCount = state.dayCounts[today] || 0;
+  const todayIsCaught = todayCount > 0;
+  const todayIsWeekday = isWeekday(new Date());
 
   const todayBtn = document.getElementById('todayBtn');
-  const todayIsWeekday = isWeekday(new Date());
+  const adjMinus  = document.getElementById('adjMinus');
+  const adjPlus   = document.getElementById('adjPlus');
+  const adjRow    = document.querySelector('.adj-btn-row');
+
+  // Default selectedDay to today if not set or if it's in the future
+  if (!selectedDay || selectedDay > today) selectedDay = today;
+
+  const selCount   = state.dayCounts[selectedDay] || 0;
+  const selMarked  = selCount > 0;
+  const selIsToday = selectedDay === today;
 
   if (!todayIsWeekday) {
     todayBtn.style.display = 'none';
+    if (adjRow) adjRow.style.display = 'none';
   } else {
     todayBtn.style.display = 'flex';
+    if (adjRow) adjRow.style.display = 'flex';
     todayBtn.className = 'today-btn' + (todayIsCaught ? ' caught-today' : '');
     document.getElementById('todayBtnIcon').textContent = todayIsCaught ? '✓' : '🪙';
     document.getElementById('todayBtnText').textContent = todayIsCaught
-      ? 'Today caught! Tap to undo'
-      : 'Mark today as caught';
+      ? `Today caught! (${todayCount}) — Tap to undo`
+      : 'One-Combine Caught Today!';
   }
 
-  buildCalendar(startDate, today, caughtDays, weekOffset);
+  // +/− act on selectedDay; enabled only when that day is marked
+  adjMinus.disabled = !selMarked;
+  adjPlus.disabled  = !selMarked;
+
+  // Label which day the buttons act on
+  const selLabel = selIsToday ? 'today' : formatDateDisplay(selectedDay);
+  adjMinus.title = `Remove combine from ${selLabel}`;
+  adjPlus.title  = `Add combine to ${selLabel}`;
+
+  buildCalendar(startDate, today, state.dayCounts, weekOffset);
+}
+
+function adjustToday(delta) {
+  const day = selectedDay || todayStr();
+  const cur = state.dayCounts[day] || 0;
+  const next = cur + delta;
+  if (next <= 0) {
+    delete state.dayCounts[day];
+  } else {
+    state.dayCounts[day] = next;
+  }
+  saveState(state);
+  const caught = totalCaught();
+  if (delta > 0 && caught >= state.goal) {
+    renderTracker();
+    showCelebration();
+  } else {
+    renderTracker();
+    if (delta > 0 && caught % 3 === 0) showMilestone(caught);
+  }
 }
 
 function shiftWeek(delta) {
@@ -971,7 +1060,7 @@ function jumpToToday() {
   renderTracker();
 }
 
-function buildCalendar(startDate, today, caughtDays, offset) {
+function buildCalendar(startDate, today, dayCounts, offset) {
   const grid = document.getElementById('calGrid');
   grid.innerHTML = '';
 
@@ -996,8 +1085,6 @@ function buildCalendar(startDate, today, caughtDays, offset) {
   document.getElementById('calPrevBtn').disabled = false;
   document.getElementById('calTodayJump').classList.toggle('hidden', offset === 0);
 
-  const caughtSet = new Set(caughtDays);
-
   const cur = new Date(weekStart);
   while (cur <= weekEnd) {
     const dow = cur.getDay();
@@ -1007,7 +1094,8 @@ function buildCalendar(startDate, today, caughtDays, offset) {
     }
 
     const ds = toDateStr(new Date(cur));
-    const isCaught = caughtSet.has(ds);
+    const count = dayCounts[ds] || 0;
+    const isCaught = count > 0;
     const isToday = ds === today;
     const isFuture = ds > today;
 
@@ -1017,6 +1105,7 @@ function buildCalendar(startDate, today, caughtDays, offset) {
     if (isCaught) cell.classList.add('caught');
     if (isToday) cell.classList.add('today');
     if (isFuture) cell.classList.add('future');
+    if (ds === selectedDay && !isFuture) cell.classList.add('selected');
 
     const dayNum = document.createElement('div');
     dayNum.className = 'day-num';
@@ -1024,7 +1113,10 @@ function buildCalendar(startDate, today, caughtDays, offset) {
 
     const dayMon = document.createElement('div');
     dayMon.className = 'day-mon';
-    dayMon.textContent = cur.toLocaleDateString('en-US', { month: 'short' });
+    // Show month or count badge if > 1
+    dayMon.textContent = count > 1
+      ? `×${count}`
+      : cur.toLocaleDateString('en-US', { month: 'short' });
 
     cell.appendChild(dayNum);
     cell.appendChild(dayMon);
@@ -1037,7 +1129,7 @@ function buildCalendar(startDate, today, caughtDays, offset) {
         const now = Date.now();
         if (now - lastTap < 350) {
           lastTap = 0;
-          toggleDay(ds, cell);
+          toggleDay(ds);
         } else {
           lastTap = now;
         }
@@ -1053,40 +1145,39 @@ function buildCalendar(startDate, today, caughtDays, offset) {
 
 const catchSound = new Audio('applepay.mp3');
 
-function toggleDay(dateStr, cell) {
-  const idx = state.caughtDays.indexOf(dateStr);
-  const marking = idx < 0;
+function toggleDay(dateStr) {
+  const marking = !(state.dayCounts[dateStr] > 0);
   if (marking) {
-    state.caughtDays.push(dateStr);
+    state.dayCounts[dateStr] = 1;
     catchSound.currentTime = 0;
     catchSound.play().catch(() => {});
   } else {
-    state.caughtDays.splice(idx, 1);
+    delete state.dayCounts[dateStr];
   }
+  // Select this day so +/− buttons act on it
+  selectedDay = dateStr;
   saveState(state);
 
-  if (marking && state.caughtDays.length >= state.goal) {
+  const caught = totalCaught();
+  if (marking && caught >= state.goal) {
     renderTracker();
     showCelebration();
   } else {
     renderTracker();
     if (marking) {
-      // Pop animation on the newly-caught cell
       const freshCell = document.querySelector(`.cal-day[data-date="${dateStr}"]`);
       if (freshCell) {
         freshCell.classList.remove('pop');
         void freshCell.offsetWidth;
         freshCell.classList.add('pop');
       }
-      // Every 3rd combine → milestone pop-up
-      if (state.caughtDays.length % 3 === 0) {
-        showMilestone(state.caughtDays.length);
-      }
+      if (caught % 3 === 0) showMilestone(caught);
     }
   }
 }
 
 function toggleToday() {
+  selectedDay = todayStr();
   toggleDay(todayStr());
 }
 
@@ -1121,15 +1212,17 @@ function closeMilestone() {
 
 // ── Celebration page ───────────────────────────────────
 function showCelebration() {
-  const { goal, startDate, caughtDays } = state;
+  const { goal, startDate } = state;
   document.getElementById('celTitle').textContent = `${goal} Combines!`;
   document.getElementById('celSub').textContent = `You crushed your goal. The combine is yours.`;
 
-  const sortedDays = [...caughtDays].sort();
-  const first = sortedDays[0];
-  const last = sortedDays[sortedDays.length - 1];
-  document.getElementById('celDates').textContent =
-    `${formatDateDisplay(first)} → ${formatDateDisplay(last)}`;
+  const sortedDays = Object.keys(state.dayCounts).sort();
+  if (sortedDays.length > 0) {
+    const first = sortedDays[0];
+    const last = sortedDays[sortedDays.length - 1];
+    document.getElementById('celDates').textContent =
+      `${formatDateDisplay(first)} → ${formatDateDisplay(last)}`;
+  }
 
   showPage('celebration');
   startConfetti();
@@ -1213,7 +1306,7 @@ async function boot() {
       setSyncStatus('Syncing…', false);
       try {
         const remote = await loadFromCloud(binId);
-        state = remote;
+        state = migrateState(remote);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
         renderTracker();
         setSyncStatus('Synced ✓', false);
